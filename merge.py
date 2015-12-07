@@ -11,8 +11,9 @@ def read_testbed_stats(path):
         # exit not 0
         if int(splits[6]) != 0:
             continue
-        # action is not swap in or swap out
-        if splits[5] not in ['swapin', 'swapout']:
+        if splits[5] not in ['start', 'swapin', 'swapout', 'destroy']:
+            continue
+        if splits[7] in ['elabman', 'elabckup']:
             continue
         request = {}
         request['idx'] = splits[0]
@@ -69,7 +70,7 @@ def merge(requests, stats, resources, path):
        resources: dictionary
     '''
     fjson = open(path + '_json', 'w')
-    ftsv = open(path + '_tsv', 'w')
+    ftsv = open(path + '.tsv', 'w')
     for i in xrange(0, len(requests)):
         request = requests[i]
         if request['expt_idx'] not in stats:
