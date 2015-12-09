@@ -14,12 +14,29 @@ def compute_pnode_hours(pnodes, start_time, end_time):
     return pnodes * hours
 
 
-def get_user_usage(requests):
+def is_new_segment(current_time, start_time):
+    current_time = datetime.datetime.strptime(current_time, datetime_format)
+    start_time = datetime.datetime.strptime(start_time, datetime_format)
+    difference = current_time - start_time
+    return difference.days >= 14
+
+
+def find_segments(requests):
     swapin_experiments = {}
     swapout_experiments = set()
-    user_usage = {}
+    users = set()
+    pnode_hours = 0
+    start = 0
+    segments = []
 
-    for request in requests:
+    for i in xrange(0, len(requests)):
+        request = requests[i]
+        if is_new_segment(request['start_time'], requests[start]['start_time']):
+            segments.append((pnode_hours, len(users), 
+                             requests[start]['idx'], requests[i - 1]['idx']))
+            pnode_hours = 0
+            users = set()
+            start = i
         expt_idx = request['expt_idx']
         uid = request['uid']
         if request['action'] in ['swapin', 'start']:
@@ -30,6 +47,7 @@ def get_user_usage(requests):
             tmp['pnodes'] = request['pnodes']
             tmp['time'] = request['end_time']
             swapin_experiments[expt_idx] = tmp
+            users.add(request['uid'])
         else:
             # destroy after swapout
             if expt_idx in swapout_experiments:
@@ -38,15 +56,10 @@ def get_user_usage(requests):
                 continue
             swapout_experiments.add(expt_idx)
             tmp = swapin_experiments[expt_idx]
-            pnode_hours = compute_pnode_hours(
+            pnode_hours += compute_pnode_hours(
                 int(tmp['pnodes']), tmp['time'], request['start_time'])
-
-            if uid not in user_usage:
-                user_usage[uid] = pnode_hours
-            else:
-                user_usage[uid] += pnode_hours
-    
-    return user_usage
+                 
+    return segments
 
 
 def main(args):
@@ -61,11 +74,10 @@ def main(args):
         requests.append(request)
     f.close()
 
-    user_usage = get_user_usage(requests)            
-    items = user_usage.items()
-    items = sorted(items, key=lambda item:item[1], reverse=True)
-    for item in items:
-        print item
+    segments = find_segments(requests)            
+    segments = sorted(segments, key=lambda x : (x[0], x[1]), reverse=True)
+    for segment in segments:
+        print segment
 
 
 if __name__ == '__main__':
