@@ -1,17 +1,9 @@
 import sys
 import json
 import datetime
-
-
-datetime_format = '%Y-%m-%d %H:%M:%S'
-
-
-def compute_pnode_hours(pnodes, start_time, end_time):
-    start = datetime.datetime.strptime(start_time, datetime_format)
-    end = datetime.datetime.strptime(end_time, datetime_format)
-    duration = end - start
-    hours = duration.total_seconds() / 3600.0
-    return pnodes * hours
+import heapq
+import utils
+from request import Request
 
 
 def simulate(requests, total_nodes):
@@ -24,26 +16,29 @@ def simulate(requests, total_nodes):
     failed_requests = {}
     histroy_free_nodes = [(0, free_nodes)]
 
-    for i in xrange(0, len(requests)):
-        request = requests[i]
-        expt_idx = request['expt_idx']
-        uid = request['uid']
-        category = request['category']
-        if request['action'] in ['swapin', 'start']:
+    cnt = 0
+    while requests:
+        request = heapq.heappop(requests)
+        expt_idx = request.expt_idx
+        uid = request.uid
+        category = request.category
+        if request.action in ['swapin', 'start']:
             # only measure new users
-            if category == 'new_user':
+            if category == 'new':
                 num_swapin += 1
             # enough free nodes, swap in
-            if free_nodes >= request['pnodes']:
+            if free_nodes >= request.pnodes:
+                if category == 'new':
+                    success += 1
                 # if in swapout_experiments, remove it
                 if expt_idx in swapout_experiments:
                     swapout_experiments.remove(expt_idx)
-                free_nodes -= request['pnodes']
-                success += 1
+                free_nodes -= request.pnodes
                 swapin_experiments[expt_idx] = request
             # else the request fails
             else:
-                failed_requests[request['idx']] = request
+                if category == 'new':
+                    failed_requests[request.idx] = request
         else:
             # maybe the previous swapin fails or this is a destroy after
             # swapout
@@ -52,14 +47,15 @@ def simulate(requests, total_nodes):
             if expt_idx not in swapin_experiments:
                 continue
             swapout_experiments.add(expt_idx)
-            exp = swapin_experiments[expt_idx]
-            free_nodes += exp['pnodes']
-            pnode_hours += compute_pnode_hours(
-                int(exp['pnodes'], exp['end_time'], request['start_time'])
+            req = swapin_experiments[expt_idx]
+            free_nodes += req.pnodes
+            pnode_hours += utils.compute_pnode_hours(
+                req.pnodes, req.start_time, request.start_time)
             #check_fail_requests()
-        
-        histroy_free_nodes = [(i + 1, free_nodes)]
-
+        cnt += 1
+        histroy_free_nodes = [(cnt, free_nodes)]
+    
+    print success, num_swapin
     print 'Success rate: %lf' %(1.0 * success / num_swapin)
     print 'pnode_hours: %lf' %(pnode_hours)
 
@@ -69,12 +65,13 @@ def main(args):
         print 'Usage: <trace> <total nodes>'
         return
 
+    f = open(args[1], 'r')
     requests = []
     for line in f:
         request = json.loads(line)
-        requests.append(request)
+        heapq.heappush(requests, Request(request))
     f.close()
-    
+
     simulate(requests, int(args[2]))
 
 

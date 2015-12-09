@@ -1,7 +1,6 @@
 import sys
 import json
 import datetime
-import copy
 
 
 datetime_format = '%Y-%m-%d %H:%M:%S'
@@ -41,18 +40,21 @@ def find_segments(requests):
         if is_new_segment(request['start_time'], requests[start]['start_time']):
             # there's still experiments that are not swapped out
             if len(swapin_experiments) > 0:
-                cnt = 1
-                for expt_idx in swapin_experiments.keys():
-                    old_request = swapin_experiments[expt_idx]
-                    request = copy.deepcopy(old_request)
-                    request['idx'] = str(int(requests[cur - 1]['idx']) + cnt)
-                    request['action'] = 'swapout'
-                    request['start_time'] = requests[cur - 1]['end_time']
-                    pnode_hours += compute_pnode_hours(
-                        int(old_request['pnodes']), old_request['start_time'],
-                        request['start_time'])
-                    cnt += 1
-                    segment_data.append(request)
+                # keep scanning until all experiments are swapped out
+                # ignore all experiments that are swapped in during this process
+                while cur < total:
+                    request = requests[cur]
+                    if (request['action'] in ['swapout', 'destroy'] and
+                        request['expt_idx'] in swapin_experiments):
+                        tmp = swapin_experiments[request['expt_idx']]
+                        pnode_hours += compute_pnode_hours(
+                            int(tmp['pnodes']), tmp['time'], request['start_time'])
+                        segment_data.append(request)
+                        del swapin_experiments[request['expt_idx']]
+                        if len(swapin_experiments) == 0:
+                            cur += 1
+                            break
+                    cur += 1
 
             segment_stats.append(
                 (pnode_hours, len(users), 
@@ -66,13 +68,17 @@ def find_segments(requests):
             segment_data = []
             segment_id += 1
 
+        segment_data.append(requests)
         expt_idx = request['expt_idx']
         uid = request['uid']
         if request['action'] in ['swapin', 'start']:
-            segment_data.append(request)
             if expt_idx in swapout_experiments:
                 swapout_experiments.remove(expt_idx)
-            swapin_experiments[expt_idx] = request
+            tmp = {}
+            tmp['uid'] = request['uid']
+            tmp['pnodes'] = request['pnodes']
+            tmp['time'] = request['end_time']
+            swapin_experiments[expt_idx] = tmp
             users.add(request['uid'])
         else:
             # destroy after swapout
@@ -82,11 +88,10 @@ def find_segments(requests):
             if expt_idx not in swapin_experiments:
                 cur += 1
                 continue
-            segment_data.append(request)
             swapout_experiments.add(expt_idx)
             tmp = swapin_experiments[expt_idx]
             pnode_hours += compute_pnode_hours(
-                int(tmp['pnodes']), tmp['start_time'], request['start_time'])
+                int(tmp['pnodes']), tmp['time'], request['start_time'])
             del swapin_experiments[expt_idx]
 
         cur += 1
@@ -95,8 +100,8 @@ def find_segments(requests):
 
 
 def main(args):
-    if len(args) != 3:
-        print 'Usage: <trace> <output>'
+    if len(args) != 2:
+        print 'Usage: <trace>'
         return
 
     f = open(args[1], 'r')
@@ -111,15 +116,6 @@ def main(args):
     for segment_stat in segment_stats:
         print segment_stat[0] / segment_stat[1], segment_stat
    
-    for i in xrange(len(segments)):
-        f = open(args[2] + '/segment_' + str(i), 'w')
-        segment_data = segments[i]
-        print 'outputing %dth segment' %(i)
-        for request in segment_data:
-            f.write(json.dumps(request))
-            f.write('\n')
-        f.close()
-
 
 if __name__ == '__main__':
     main(sys.argv)

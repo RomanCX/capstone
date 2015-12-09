@@ -74,12 +74,8 @@ def merge(requests, stats, resources, path):
     for i in xrange(0, len(requests)):
         request = requests[i]
         if request['expt_idx'] not in stats:
-            print request
-            print 'not in stats'
             continue
         if request['rsrcidx'] not in resources:
-            print request
-            print 'not in resources'
             continue
         stat = stats[request['expt_idx']]
         request['eid'] = stat['eid']
